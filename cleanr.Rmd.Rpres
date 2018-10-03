@@ -1,0 +1,336 @@
+How to Clean Your Dataset in R
+========================================================
+author: Cole Beck
+date: October 5, 2018
+autosize: true
+css: myrules.css
+
+Data Preparation
+========================================================
+
+- Data Preprocessing
+- Data Cleaning
+- Data Wrangling
+
+## Popular R packages
+- tidyr, dplyr, purrr, stringr, lubridate
+
+But we'll focus on base R
+
+Raw Data
+========================================================
+
+TB data from WHO (http://www.who.int/tb/country/data/download/en/)
+
+```{r, echo = FALSE}
+tb <- read.csv("tbdata.csv", stringsAsFactors = FALSE)
+```
+
+```{r, eval = FALSE}
+url <- "https://extranet.who.int/tme/generateCSV.asp?ds=notifications"
+tb <- read.csv(url, stringsAsFactors = FALSE)
+```
+
+```{r}
+dim(tb)
+```
+
+By default `stringsAsFactors` turns character strings into categorical variables. Setting it to `FALSE` ignores this behaviour.
+
+Understand the Data
+========================================================
+
+Sample columns|Description
+----|----
+newrel_m014|new case, relapse, male, age 0-14
+new_ep_m1524|new case, extrapulmonary TB, male, age 15-24
+new_sn_f5564|new case, pulmonary TB - smear negative, female, age 55-64
+new_sp_f65|new case, pulmonary TB - smear positive, female, age 65+
+newrel_sexunk15plus|new case, relapse, sex unknown, age 15+
+newrel_sexunkageunk|new case, relapse, sex unknown, age unknown
+
+These column names contain 4 values (new, TB case, sex, age group)
+
+USA 2008 - 2017
+========================================================
+
+```{r}
+(ix <- which(tb[,'iso3'] == 'USA' & tb[,'year'] >= 2008 & tb[,'year'] <= 2017))
+(us0817 <- tb[ix, c('iso3','year','newrel_m014','new_ep_m1524','new_sn_f5564','new_sp_f65')])
+```
+
+USA 2008 - 2017
+========================================================
+
+Todo list
+
+1. Rename "newrel" to "new_rel" (for consistency)
+1. Go from wide to long data (10x6 => 40x4)
+1. Extract values from column names (40x4 => 40x6)
+
+Simple text substitution
+========================================================
+
+```{r}
+# fix column name
+names(us0817) <- sub('newrel', 'new_rel', names(us0817), fixed = TRUE)
+```
+
+Setting `fixed = TRUE` turns off regular expression pattern matching.
+
+Several characters have special meanings in the context of a regular expression. For example, `^` can be used to indicate the given pattern should start at the beginning of a string.
+
+```{r}
+# verify column name changed
+grep('^new_rel', names(us0817), value = TRUE)
+```
+
+Re-shaping data
+========================================================
+
+Longitudinal data can be formatted as either "long" or "wide". The `reshape` function converts from one format to the other.
+
+```{r}
+(vcols <- grep('^new_', names(us0817), value = TRUE))
+uslong <- reshape(us0817, varying = list(vcols), v.names = "cases", timevar = 'newvals',
+        idvar = c('iso3', 'year'), times = vcols, direction = 'long')
+dim(uslong)
+```
+
+Re-shaping data
+========================================================
+
+```{r}
+uscnts <- uslong[!is.na(uslong[,'cases']),]
+print(uscnts[1:10,], row.names = FALSE)
+```
+
+String extraction, with string-split
+========================================================
+
+```{r}
+(newvals <- unique(uslong[,'newvals']))
+strsplit(newvals, '_')
+```
+
+String extraction, complex substitutions
+========================================================
+
+There are some good web sites to test regular expressions, such as https://regex101.com/
+
+```{r}
+type <- sub('.*_(.*)_.*', '\\1', newvals)
+sex <- sub('.*_([mf]).*', '\\1', newvals)
+age <- sub('.*_[mf](.*)', '\\1', newvals)
+(newdata <- data.frame(newvals, type, sex, age))
+```
+
+Data merge
+========================================================
+
+Combine `uslong` and `newdata` by `newvals` column
+
+```{r}
+merge(uslong, newdata, by = 'newvals')[1:5,-1]
+# possible to do manual merge with `match`
+match(uslong[,'newvals'], newdata[,'newvals'])
+```
+
+Missing Data & Imputation
+========================================================
+
+Talk to a statistician about missing data!
+
+* remove observations with missingness
+* mean
+* use same subject (longitudinal)
+* sample similar observations
+* regression
+
+Removing Incomplete Records
+========================================================
+
+Smart pill data comes from TSHS (https://www.causeweb.org/tshs/smart-pill/)
+
+```{r}
+load('smartpill.Rdata')
+sp <- smartpill[,1:10]
+head(sp)
+```
+
+Understand the Data
+========================================================
+
+Sample columns|Description
+----|----
+Group|0 = Critically Ill, 1 = Healthy
+GE.Time|gastric emptying time (in hours)
+SB.Time|small bowel emptying time
+C.Time|colonic transit time
+WG.Time|whole gut time
+
+Removing Incomplete Records
+========================================================
+
+```{r}
+nrow(sp[!is.na(sp[,'GE.Time']),])
+nrow(sp[is.na(sp[,'GE.Time']),])
+nrow(sp[complete.cases(sp[,grep('Time$', names(sp))]),])
+allsp <- sp[complete.cases(sp),]
+```
+
+Group Mean
+========================================================
+
+```{r}
+nsp <- sp
+timecols <- grep('Time$', names(nsp), value = TRUE)
+(gm <- sapply(split(nsp[, timecols], sp[,'Group']), colMeans, na.rm = TRUE))
+for(tc in timecols) {
+  nsp[is.na(nsp[,tc]) & nsp[,'Group'] == 0, tc] <- gm[tc,1]
+  nsp[is.na(nsp[,tc]) & nsp[,'Group'] == 1, tc] <- gm[tc,2]
+}
+```
+
+(in general I wouldn't recommend this method of imputation)
+
+Regression
+========================================================
+
+```{r}
+mod <- lm(GE.Time ~ Group + Gender + Age + WG.Time, data = sp)
+ix <- is.na(sp[,'GE.Time'])
+sp[ix,'GE.Time'] <- predict(mod, sp[ix,])
+sp[ix,]
+```
+
+Within Subject
+========================================================
+
+Simulated longitudinal data
+
+```{r}
+ld <- data.frame(
+  id = sample(1001:1010, 150, replace = TRUE),
+  visitDate = as.Date(sample(1461, 150, replace = TRUE), origin = '2010-01-01'),
+  testScore = round(rnorm(150, 75, 10))
+)
+height <- round(runif(10, 60, 75))
+ld[,'height'] <- height[ld[,'id']-1000]
+ld <- ld[order(ld[,'id'], ld[,'visitDate']),]
+ld[sample(150, 10), 'testScore'] <- NA
+ld[sample(150, 25), 'height'] <- NA
+```
+
+Mean test score
+========================================================
+
+Impute test score by taking mean test score for each subject
+
+```{r}
+mt <- tapply(ld[,'testScore'], ld[,'id'], mean, na.rm = TRUE)
+ix <- which(is.na(ld[,'testScore']))
+ld[ix,'testScore'] <- mt[as.character(ld[ix,'id'])]
+head(ld[ix,])
+```
+
+Last observation carried forward
+========================================================
+
+```{r}
+locf <- function(x) {
+  ix <- which(is.na(x))
+  for(i in ix) {
+    if(i > 1 && !is.na(x[i-1])) {
+      x[i] <- x[i-1]
+    }
+  }
+  x
+}
+sld <- split(ld[,'height'], ld[,'id'])
+ld[,'height'] <- unsplit(lapply(sld, locf), ld[,'id'])
+sum(is.na(ld[,'height']))
+```
+
+Data Validation
+========================================================
+
+Once data is structured, determine what should be validated
+
+* global (min/max/missing)
+* within observation
+* within subject
+
+Jennifer Thompson has an excellent presentation tailored to REDCap and project workflow:
+
+https://github.com/jenniferthompson/DataCleanExample/
+
+Global Validation
+========================================================
+
+Define some simple functions
+
+```{r}
+lowrange <- function(x, thr) x < thr
+highrange <- function(x, thr) x > thr
+badrange <- function(x, low, high) lowrange(x, low) | highrange(x, high)
+badrange(c(1, 5, -3, 25, NA, 42), 0, 10)
+```
+
+```{r}
+badage <- badrange(sp[,'Age'], 20, 40)
+noage <- is.na(sp[,'Age'])
+sum(badage)
+```
+
+Global Validation
+========================================================
+
+```{r}
+badbmi <- highrange(sp[,'Weight'] / (sp[,'Height'] / 100)^2, 30)
+isbad <- cbind(badage, noage, badbmi)
+head(isbad)
+anybad <- rowSums(isbad) > 0
+gooddat <- sp[!anybad,]
+baddat <- sp[anybad,]
+```
+
+Validation within an observation
+========================================================
+
+Require `C.Time > SB.Time` if SB.Time is not missing
+
+```{r}
+ix <- !is.na(sp[,'SB.Time']) & (is.na(sp[,'C.Time']) | sp[,'C.Time'] <= sp[,'SB.Time'])
+tail(sp[ix,])
+```
+
+Be careful with NA values
+
+Validation within an subject
+========================================================
+
+Require last testScore >= mean testScore for each subject
+
+```{r}
+lowscore <- function(x) {
+  x[length(x)] < mean(x)
+}
+sld <- split(ld[,'testScore'], ld[,'id'])
+badid <- names(which(sapply(sld, lowscore)))
+finalld <- ld[!(ld[,'id'] %in% badid),]
+dim(finalld)
+```
+
+Contact Me
+========================================================
+
+## R clinic
+
+1st Friday of each month
+
+1:30pm in the Biostatistics Conference Room
+
+11105, 2525 West End Avenue
+
+Contact Cole at [cole.beck@vumc.org](mailto:cole.beck@vumc.org?subject=R Clinic)
