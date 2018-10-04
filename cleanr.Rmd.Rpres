@@ -147,6 +147,8 @@ Talk to a statistician about missing data!
 * sample similar observations
 * regression
 
+Each has potential pitfalls, especially with regards to standard errors (see multiple imputation).
+
 Removing Incomplete Records
 ========================================================
 
@@ -191,8 +193,6 @@ for(tc in timecols) {
   nsp[is.na(nsp[,tc]) & nsp[,'Group'] == 1, tc] <- gm[tc,2]
 }
 ```
-
-(in general I wouldn't recommend this method of imputation)
 
 Regression
 ========================================================

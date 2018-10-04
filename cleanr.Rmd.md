@@ -255,6 +255,8 @@ Talk to a statistician about missing data!
 * sample similar observations
 * regression
 
+Each has potential pitfalls, especially with regards to standard errors (see multiple imputation).
+
 Removing Incomplete Records
 ========================================================
 
@@ -345,8 +347,6 @@ for(tc in timecols) {
 }
 ```
 
-(in general I wouldn't recommend this method of imputation)
-
 Regression
 ========================================================
 
@@ -399,12 +399,12 @@ head(ld[ix,])
 
 ```
       id  visitDate testScore height
-126 1001 2012-06-16  74.23810     NA
-22  1001 2012-12-19  74.23810     67
-123 1002 2010-08-12  73.26667     65
-65  1004 2010-05-24  72.46667     74
-70  1005 2012-07-27  74.30769     67
-26  1005 2013-11-03  74.30769     67
+5   1002 2014-01-01  75.81818     73
+57  1003 2010-07-22  71.10000     73
+19  1004 2012-09-08  71.06667     67
+72  1005 2013-02-18  77.13333     69
+113 1007 2011-02-21  76.00000     64
+112 1007 2013-08-10  76.00000     64
 ```
 
 Last observation carried forward
@@ -427,7 +427,7 @@ sum(is.na(ld[,'height']))
 ```
 
 ```
-[1] 2
+[1] 5
 ```
 
 Data Validation
@@ -537,7 +537,7 @@ dim(finalld)
 ```
 
 ```
-[1] 73  4
+[1] 95  4
 ```
 
 Contact Me
